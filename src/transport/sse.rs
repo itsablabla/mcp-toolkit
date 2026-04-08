@@ -134,18 +134,20 @@ impl SseTransport {
 #[async_trait]
 impl Transport for SseTransport {
     async fn send_request(&self, request: &JsonRpcRequest) -> Result<JsonRpcResponse, McpError> {
-        let id = request.id;
+        let id = request.id.as_u64().unwrap_or(0);
         let data = serde_json::to_vec(request)?;
         let messages = self.post_and_parse(&data).await?;
 
         for msg in messages {
             match msg {
-                IncomingMessage::Response(resp) if resp.id == Some(id) => {
-                    return Ok(resp);
+                IncomingMessage::Response(ref resp) if resp.id.as_u64() == Some(id) => {
+                    if let IncomingMessage::Response(resp) = msg {
+                        return Ok(resp);
+                    }
                 }
                 IncomingMessage::Response(resp) => {
                     // Response for a different ID — route to pending
-                    if let Some(resp_id) = resp.id {
+                    if let Some(resp_id) = resp.id.as_u64() {
                         let mut map = self.pending.lock().await;
                         if let Some(tx) = map.remove(&resp_id) {
                             let _ = tx.send(resp);

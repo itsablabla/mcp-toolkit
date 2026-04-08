@@ -337,7 +337,7 @@ impl McpClient {
         request_id: u64,
         response: SamplingResponse,
     ) -> Result<(), McpError> {
-        let resp = JsonRpcResponse::success(request_id, serde_json::to_value(response)?);
+        let resp = JsonRpcResponse::success(serde_json::json!(request_id), serde_json::to_value(response)?);
         self.transport.send_response(&resp).await
     }
 
@@ -347,7 +347,7 @@ impl McpClient {
         request_id: u64,
         response: ElicitationResponse,
     ) -> Result<(), McpError> {
-        let resp = JsonRpcResponse::success(request_id, serde_json::to_value(response)?);
+        let resp = JsonRpcResponse::success(serde_json::json!(request_id), serde_json::to_value(response)?);
         self.transport.send_response(&resp).await
     }
 

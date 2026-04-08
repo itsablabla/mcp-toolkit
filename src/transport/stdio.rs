@@ -79,7 +79,7 @@ impl StdioTransport {
 
                 match parse_incoming(trimmed) {
                     Some(IncomingMessage::Response(resp)) => {
-                        if let Some(id) = resp.id {
+                        if let Some(id) = resp.id.as_u64() {
                             let mut map = reader_pending.lock().await;
                             if let Some(tx) = map.remove(&id) {
                                 let _ = tx.send(resp);
@@ -134,7 +134,7 @@ impl Transport for StdioTransport {
             return Err(McpError::Transport("Process is dead".to_string()));
         }
 
-        let id = request.id;
+        let id = request.id.as_u64().unwrap_or(0);
         let (tx, rx) = oneshot::channel();
 
         {
