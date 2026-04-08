@@ -99,11 +99,7 @@ async fn handle_mcp_post(
 
 /// Handle a single JSON-RPC message (request or notification).
 async fn handle_single_message(state: Arc<AppState>, value: &serde_json::Value) -> Response {
-    let has_id = value.get("id").is_some()
-        && !value
-            .get("id")
-            .map(|v| v.is_null())
-            .unwrap_or(true);
+    let has_id = value.get("id").is_some();
     let has_method = value.get("method").is_some();
 
     if !has_method {
@@ -167,11 +163,7 @@ async fn handle_batch(state: Arc<AppState>, messages: &[serde_json::Value]) -> R
     let mut is_initialize_batch = false;
 
     for msg in messages {
-        let has_id = msg.get("id").is_some()
-            && !msg
-                .get("id")
-                .map(|v| v.is_null())
-                .unwrap_or(true);
+        let has_id = msg.get("id").is_some();
         let has_method = msg.get("method").is_some();
 
         if has_id && has_method {
