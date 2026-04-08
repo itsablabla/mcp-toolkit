@@ -4,7 +4,7 @@ services:
     container_name: mcp-toolkit
     restart: unless-stopped
     ports:
-      - "3100:3000"
+      - "3300:3000"
     volumes:
       - ./config:/root/.mcp-toolkit
       - mcp-data:/data
