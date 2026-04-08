@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "mcp-toolkit": {
+      "url": "https://mcp.garzaos.cloud/mcp",
+      "transport": "http"
+    }
+  }
+}

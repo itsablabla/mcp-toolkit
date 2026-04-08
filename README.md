@@ -4,6 +4,127 @@ Autonomous, self-foraging MCP (Model Context Protocol) toolkit for AI agents.
 
 Isolated from [temm1e](https://github.com/temm1e-labs/temm1e) and rebuilt as a standalone, framework-agnostic toolkit that any AI agent can use to discover, connect, and orchestrate MCP servers.
 
+## Live Endpoint
+
+**`https://mcp.garzaos.cloud/mcp`** — Streamable HTTP transport, ready for any MCP-compatible agent.
+
+| URL | Purpose |
+|-----|---------|
+| `https://mcp.garzaos.cloud/mcp` | MCP JSON-RPC endpoint |
+| `https://mcp.garzaos.cloud/health` | Health check |
+| `https://mcp.garzaos.cloud/` | Server info |
+
+## Connect Your Agent
+
+### Claude Desktop / Claude Code
+
+Add to `~/.claude/claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "mcp-toolkit": {
+      "url": "https://mcp.garzaos.cloud/mcp",
+      "transport": "http"
+    }
+  }
+}
+```
+
+### Cursor
+
+Add to `.cursor/mcp.json` in your project root:
+
+```json
+{
+  "mcpServers": {
+    "mcp-toolkit": {
+      "url": "https://mcp.garzaos.cloud/mcp",
+      "transport": "http"
+    }
+  }
+}
+```
+
+### Windsurf
+
+Add to `~/.codeium/windsurf/mcp_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "mcp-toolkit": {
+      "url": "https://mcp.garzaos.cloud/mcp",
+      "transport": "http"
+    }
+  }
+}
+```
+
+### OpenAI Agents SDK (Python)
+
+```python
+from agents.mcp import MCPServerStreamableHttp
+from agents import Agent
+
+agent = Agent(
+    name="my-agent",
+    instructions="You have access to MCP tools.",
+    mcp_servers=[
+        MCPServerStreamableHttp(
+            name="mcp-toolkit",
+            url="https://mcp.garzaos.cloud/mcp",
+        )
+    ],
+)
+```
+
+### TypeScript / Node.js
+
+```typescript
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+
+const transport = new StreamableHTTPClientTransport(
+  new URL("https://mcp.garzaos.cloud/mcp")
+);
+const client = new Client({ name: "my-agent", version: "1.0.0" });
+await client.connect(transport);
+
+const tools = await client.listTools();
+for (const tool of tools.tools) {
+  console.log(`${tool.name}: ${tool.description}`);
+}
+```
+
+### Python MCP Client
+
+```python
+from mcp.client.streamable_http import streamablehttp_client
+from mcp import ClientSession
+
+async with streamablehttp_client("https://mcp.garzaos.cloud/mcp") as (read, write, _):
+    async with ClientSession(read, write) as session:
+        await session.initialize()
+        tools = await session.list_tools()
+        for tool in tools.tools:
+            print(f"{tool.name}: {tool.description}")
+```
+
+### Any HTTP Client (curl)
+
+```bash
+# Initialize
+curl -X POST https://mcp.garzaos.cloud/mcp \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"0.1"}}}'
+
+# List tools
+curl -X POST https://mcp.garzaos.cloud/mcp \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}'
+```
+
 ## Features
 
 - **Full MCP Protocol** — Tools, Resources, Prompts, Sampling, Elicitation
@@ -15,15 +136,27 @@ Isolated from [temm1e](https://github.com/temm1e-labs/temm1e) and rebuilt as a s
 - **Trust Scoring** — Rate servers by source reliability (builtin > official > smithery > npm)
 - **Docker Ready** — Multi-stage Dockerfile for VPS deployment
 
-## Quick Start
+## Self-Hosting
 
-### Install from source
+### Docker (recommended)
+
+```bash
+git clone https://github.com/itsablabla/mcp-toolkit.git
+cd mcp-toolkit
+mkdir -p config
+docker compose up -d
+
+# MCP endpoint: http://localhost:3300/mcp
+```
+
+### From Source
 
 ```bash
 cargo install --path .
+mcp-toolkit serve --bind 0.0.0.0:3000
 ```
 
-### Configure
+## CLI Usage
 
 ```bash
 # Initialize default config
@@ -32,14 +165,10 @@ mcp-toolkit config init
 # Add a server manually
 mcp-toolkit add filesystem --command npx -- -y @modelcontextprotocol/server-filesystem /tmp
 
-# Or install from the built-in registry
+# Install from the built-in registry
 mcp-toolkit install playwright
 mcp-toolkit install github
-```
 
-### Use
-
-```bash
 # List configured servers
 mcp-toolkit list
 
@@ -58,25 +187,9 @@ mcp-toolkit call filesystem read_file '{"path": "/tmp/hello.txt"}'
 
 # Health check
 mcp-toolkit health
-```
 
-### Run as MCP Server
-
-```bash
-# Start HTTP server on port 3000
+# Start as MCP server
 mcp-toolkit serve --bind 0.0.0.0:3000
-```
-
-### Docker
-
-```bash
-# Build and run
-docker compose up -d
-
-# Check logs
-docker compose logs -f mcp-toolkit
-
-# The MCP endpoint is at http://localhost:3100/mcp
 ```
 
 ## Configuration
@@ -107,7 +220,7 @@ enabled = true
 Authorization = "Bearer token123"
 ```
 
-## Library Usage
+## Library Usage (Rust)
 
 ```rust
 use mcp_toolkit::{McpManager, McpConfig};
