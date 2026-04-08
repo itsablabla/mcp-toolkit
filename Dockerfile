@@ -17,7 +17,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     && curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
     && apt-get install -y --no-install-recommends nodejs \
-    && npm install -g npx \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /build/target/release/mcp-toolkit /usr/local/bin/mcp-toolkit
