@@ -334,20 +334,20 @@ impl McpClient {
     /// Send a sampling response back to the server.
     pub async fn respond_to_sampling(
         &self,
-        request_id: u64,
+        request_id: serde_json::Value,
         response: SamplingResponse,
     ) -> Result<(), McpError> {
-        let resp = JsonRpcResponse::success(serde_json::json!(request_id), serde_json::to_value(response)?);
+        let resp = JsonRpcResponse::success(request_id, serde_json::to_value(response)?);
         self.transport.send_response(&resp).await
     }
 
     /// Send an elicitation response back to the server.
     pub async fn respond_to_elicitation(
         &self,
-        request_id: u64,
+        request_id: serde_json::Value,
         response: ElicitationResponse,
     ) -> Result<(), McpError> {
-        let resp = JsonRpcResponse::success(serde_json::json!(request_id), serde_json::to_value(response)?);
+        let resp = JsonRpcResponse::success(request_id, serde_json::to_value(response)?);
         self.transport.send_response(&resp).await
     }
 
