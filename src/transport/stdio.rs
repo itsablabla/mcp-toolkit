@@ -13,11 +13,18 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, Command};
 use tokio::sync::{mpsc, oneshot, Mutex};
 
+/// Serialize a JSON-RPC id value to a canonical string key for pending map lookup.
+fn id_to_key(id: &serde_json::Value) -> String {
+    // Use the compact JSON representation as the map key.
+    // This handles numbers, strings, and null uniformly.
+    serde_json::to_string(id).unwrap_or_default()
+}
+
 /// Stdio transport — communicates with an MCP server via stdin/stdout.
 pub struct StdioTransport {
     stdin: Mutex<tokio::process::ChildStdin>,
     child: Mutex<Option<Child>>,
-    pending: Arc<Mutex<HashMap<u64, oneshot::Sender<JsonRpcResponse>>>>,
+    pending: Arc<Mutex<HashMap<String, oneshot::Sender<JsonRpcResponse>>>>,
     alive: Arc<AtomicBool>,
     _reader_handle: tokio::task::JoinHandle<()>,
     _incoming_tx: mpsc::Sender<IncomingMessage>,
@@ -58,7 +65,7 @@ impl StdioTransport {
             .take()
             .ok_or_else(|| McpError::Transport("Failed to capture stdout".to_string()))?;
 
-        let pending: Arc<Mutex<HashMap<u64, oneshot::Sender<JsonRpcResponse>>>> =
+        let pending: Arc<Mutex<HashMap<String, oneshot::Sender<JsonRpcResponse>>>> =
             Arc::new(Mutex::new(HashMap::new()));
         let alive = Arc::new(AtomicBool::new(true));
         let (incoming_tx, incoming_rx) = mpsc::channel(256);
@@ -79,11 +86,10 @@ impl StdioTransport {
 
                 match parse_incoming(trimmed) {
                     Some(IncomingMessage::Response(resp)) => {
-                        if let Some(id) = resp.id.as_u64() {
-                            let mut map = reader_pending.lock().await;
-                            if let Some(tx) = map.remove(&id) {
-                                let _ = tx.send(resp);
-                            }
+                        let key = id_to_key(&resp.id);
+                        let mut map = reader_pending.lock().await;
+                        if let Some(tx) = map.remove(&key) {
+                            let _ = tx.send(resp);
                         }
                     }
                     Some(msg @ IncomingMessage::Notification(_))
@@ -134,12 +140,12 @@ impl Transport for StdioTransport {
             return Err(McpError::Transport("Process is dead".to_string()));
         }
 
-        let id = request.id.as_u64().unwrap_or(0);
+        let key = id_to_key(&request.id);
         let (tx, rx) = oneshot::channel();
 
         {
             let mut map = self.pending.lock().await;
-            map.insert(id, tx);
+            map.insert(key.clone(), tx);
         }
 
         let data = serde_json::to_vec(request)?;
@@ -149,15 +155,15 @@ impl Transport for StdioTransport {
             Ok(Ok(response)) => Ok(response),
             Ok(Err(_)) => {
                 let mut map = self.pending.lock().await;
-                map.remove(&id);
+                map.remove(&key);
                 Err(McpError::Transport("Response channel closed".to_string()))
             }
             Err(_) => {
                 let mut map = self.pending.lock().await;
-                map.remove(&id);
+                map.remove(&key);
                 Err(McpError::Timeout(format!(
                     "Request {} timed out after 30s",
-                    id
+                    key
                 )))
             }
         }
@@ -228,5 +234,20 @@ mod tests {
     async fn spawn_nonexistent_fails() {
         let result = StdioTransport::spawn("__nonexistent_binary__", &[], &HashMap::new()).await;
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn id_to_key_numeric() {
+        assert_eq!(id_to_key(&serde_json::json!(42)), "42");
+    }
+
+    #[test]
+    fn id_to_key_string() {
+        assert_eq!(id_to_key(&serde_json::json!("abc-123")), "\"abc-123\"");
+    }
+
+    #[test]
+    fn id_to_key_null() {
+        assert_eq!(id_to_key(&serde_json::Value::Null), "null");
     }
 }
