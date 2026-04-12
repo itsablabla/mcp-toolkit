@@ -53,12 +53,18 @@ impl McpServer {
         tools.insert(name, handler);
     }
 
-    /// Handle an incoming JSON-RPC request.
+    /// Handle an incoming JSON-RPC request (has id, expects response).
     pub async fn handle_request(&self, request: JsonRpcRequest) -> JsonRpcResponse {
         match request.method.as_str() {
             "initialize" => self.handle_initialize(request.id).await,
+            "notifications/initialized" => {
+                // Some clients send this as a request with id instead of notification
+                JsonRpcResponse::success(request.id, serde_json::json!({}))
+            }
             "tools/list" => self.handle_tools_list(request.id).await,
             "tools/call" => self.handle_tools_call(request.id, request.params).await,
+            "resources/list" => self.handle_resources_list(request.id).await,
+            "prompts/list" => self.handle_prompts_list(request.id).await,
             "ping" => JsonRpcResponse::success(request.id, serde_json::json!({})),
             _ => JsonRpcResponse::error(
                 request.id,
@@ -68,7 +74,22 @@ impl McpServer {
         }
     }
 
-    async fn handle_initialize(&self, id: u64) -> JsonRpcResponse {
+    /// Handle an incoming notification (no id, no response expected).
+    pub async fn handle_notification(&self, method: &str, _params: Option<serde_json::Value>) {
+        match method {
+            "notifications/initialized" => {
+                tracing::info!("Client sent initialized notification");
+            }
+            "notifications/cancelled" => {
+                tracing::info!("Client cancelled request");
+            }
+            _ => {
+                tracing::debug!(method, "Received unknown notification");
+            }
+        }
+    }
+
+    async fn handle_initialize(&self, id: serde_json::Value) -> JsonRpcResponse {
         JsonRpcResponse::success(
             id,
             serde_json::json!({
@@ -84,7 +105,7 @@ impl McpServer {
         )
     }
 
-    async fn handle_tools_list(&self, id: u64) -> JsonRpcResponse {
+    async fn handle_tools_list(&self, id: serde_json::Value) -> JsonRpcResponse {
         let tools = self.tools.read().await;
         let tool_list: Vec<serde_json::Value> = tools
             .values()
@@ -102,7 +123,7 @@ impl McpServer {
 
     async fn handle_tools_call(
         &self,
-        id: u64,
+        id: serde_json::Value,
         params: Option<serde_json::Value>,
     ) -> JsonRpcResponse {
         let params = match params {
@@ -160,6 +181,14 @@ impl McpServer {
             ),
         }
     }
+
+    async fn handle_resources_list(&self, id: serde_json::Value) -> JsonRpcResponse {
+        JsonRpcResponse::success(id, serde_json::json!({"resources": []}))
+    }
+
+    async fn handle_prompts_list(&self, id: serde_json::Value) -> JsonRpcResponse {
+        JsonRpcResponse::success(id, serde_json::json!({"prompts": []}))
+    }
 }
 
 #[cfg(test)]
@@ -199,7 +228,7 @@ mod tests {
     #[tokio::test]
     async fn server_initialize() {
         let server = McpServer::new("test-server", "0.1.0");
-        let req = JsonRpcRequest::new(1, "initialize", Some(serde_json::json!({})));
+        let req = JsonRpcRequest::new(1u64, "initialize", Some(serde_json::json!({})));
         let resp = server.handle_request(req).await;
         assert!(!resp.is_error());
     }
@@ -209,7 +238,7 @@ mod tests {
         let server = McpServer::new("test-server", "0.1.0");
         server.register_tool(Arc::new(EchoTool)).await;
 
-        let req = JsonRpcRequest::new(2, "tools/list", None);
+        let req = JsonRpcRequest::new(2u64, "tools/list", None);
         let resp = server.handle_request(req).await;
         let result = resp.into_result().unwrap();
         let tools = result["tools"].as_array().unwrap();
@@ -223,7 +252,7 @@ mod tests {
         server.register_tool(Arc::new(EchoTool)).await;
 
         let req = JsonRpcRequest::new(
-            3,
+            3u64,
             "tools/call",
             Some(serde_json::json!({
                 "name": "echo",
@@ -239,7 +268,7 @@ mod tests {
     async fn server_tool_not_found() {
         let server = McpServer::new("test-server", "0.1.0");
         let req = JsonRpcRequest::new(
-            4,
+            4u64,
             "tools/call",
             Some(serde_json::json!({"name": "nonexistent"})),
         );
@@ -250,8 +279,24 @@ mod tests {
     #[tokio::test]
     async fn server_method_not_found() {
         let server = McpServer::new("test-server", "0.1.0");
-        let req = JsonRpcRequest::new(5, "unknown/method", None);
+        let req = JsonRpcRequest::new(5u64, "unknown/method", None);
         let resp = server.handle_request(req).await;
         assert!(resp.is_error());
+    }
+
+    #[tokio::test]
+    async fn server_resources_list() {
+        let server = McpServer::new("test-server", "0.1.0");
+        let req = JsonRpcRequest::new(6u64, "resources/list", None);
+        let resp = server.handle_request(req).await;
+        assert!(!resp.is_error());
+    }
+
+    #[tokio::test]
+    async fn server_prompts_list() {
+        let server = McpServer::new("test-server", "0.1.0");
+        let req = JsonRpcRequest::new(7u64, "prompts/list", None);
+        let resp = server.handle_request(req).await;
+        assert!(!resp.is_error());
     }
 }

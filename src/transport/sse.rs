@@ -16,13 +16,18 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tokio::sync::{mpsc, oneshot, Mutex};
 
+/// Serialize a JSON-RPC id value to a canonical string key for pending map lookup.
+fn id_to_key(id: &serde_json::Value) -> String {
+    serde_json::to_string(id).unwrap_or_default()
+}
+
 /// SSE transport — HTTP with Server-Sent Events for bidirectional communication.
 pub struct SseTransport {
     endpoint: String,
     client: reqwest::Client,
     headers: HashMap<String, String>,
     session_id: Mutex<Option<String>>,
-    pending: Arc<Mutex<HashMap<u64, oneshot::Sender<JsonRpcResponse>>>>,
+    pending: Arc<Mutex<HashMap<String, oneshot::Sender<JsonRpcResponse>>>>,
     alive: Arc<AtomicBool>,
     incoming_tx: mpsc::Sender<IncomingMessage>,
     incoming_rx: Mutex<Option<mpsc::Receiver<IncomingMessage>>>,
@@ -134,22 +139,23 @@ impl SseTransport {
 #[async_trait]
 impl Transport for SseTransport {
     async fn send_request(&self, request: &JsonRpcRequest) -> Result<JsonRpcResponse, McpError> {
-        let id = request.id;
+        let key = id_to_key(&request.id);
         let data = serde_json::to_vec(request)?;
         let messages = self.post_and_parse(&data).await?;
 
         for msg in messages {
             match msg {
-                IncomingMessage::Response(resp) if resp.id == Some(id) => {
-                    return Ok(resp);
+                IncomingMessage::Response(ref resp) if id_to_key(&resp.id) == key => {
+                    if let IncomingMessage::Response(resp) = msg {
+                        return Ok(resp);
+                    }
                 }
                 IncomingMessage::Response(resp) => {
                     // Response for a different ID — route to pending
-                    if let Some(resp_id) = resp.id {
-                        let mut map = self.pending.lock().await;
-                        if let Some(tx) = map.remove(&resp_id) {
-                            let _ = tx.send(resp);
-                        }
+                    let resp_key = id_to_key(&resp.id);
+                    let mut map = self.pending.lock().await;
+                    if let Some(tx) = map.remove(&resp_key) {
+                        let _ = tx.send(resp);
                     }
                 }
                 other => {
@@ -160,7 +166,7 @@ impl Transport for SseTransport {
 
         Err(McpError::Protocol(format!(
             "No response received for request ID {}",
-            id
+            key
         )))
     }
 
@@ -223,5 +229,15 @@ mod tests {
         );
         let msgs = transport.process_sse_response(sse_text).await;
         assert_eq!(msgs.len(), 2);
+    }
+
+    #[test]
+    fn id_key_consistency() {
+        // Verify that the same id value produces the same key
+        let id = serde_json::json!("abc-123");
+        assert_eq!(id_to_key(&id), id_to_key(&id));
+
+        // Different types produce different keys
+        assert_ne!(id_to_key(&serde_json::json!(1)), id_to_key(&serde_json::json!("1")));
     }
 }

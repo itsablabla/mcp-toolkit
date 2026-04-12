@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct JsonRpcRequest {
     pub jsonrpc: String,
-    pub id: u64,
+    pub id: serde_json::Value,
     pub method: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub params: Option<serde_json::Value>,
@@ -27,7 +27,7 @@ pub struct JsonRpcNotification {
 pub struct JsonRpcResponse {
     pub jsonrpc: String,
     #[serde(default)]
-    pub id: Option<u64>,
+    pub id: serde_json::Value,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub result: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -53,10 +53,10 @@ pub enum IncomingMessage {
 }
 
 impl JsonRpcRequest {
-    pub fn new(id: u64, method: &str, params: Option<serde_json::Value>) -> Self {
+    pub fn new(id: impl Into<serde_json::Value>, method: &str, params: Option<serde_json::Value>) -> Self {
         Self {
             jsonrpc: "2.0".to_string(),
-            id,
+            id: id.into(),
             method: method.to_string(),
             params,
         }
@@ -92,20 +92,20 @@ impl JsonRpcResponse {
     }
 
     /// Create a success response.
-    pub fn success(id: u64, result: serde_json::Value) -> Self {
+    pub fn success(id: serde_json::Value, result: serde_json::Value) -> Self {
         Self {
             jsonrpc: "2.0".to_string(),
-            id: Some(id),
+            id,
             result: Some(result),
             error: None,
         }
     }
 
     /// Create an error response.
-    pub fn error(id: u64, code: i64, message: &str) -> Self {
+    pub fn error(id: serde_json::Value, code: i64, message: &str) -> Self {
         Self {
             jsonrpc: "2.0".to_string(),
-            id: Some(id),
+            id,
             result: None,
             error: Some(JsonRpcError {
                 code,
@@ -143,7 +143,7 @@ mod tests {
 
     #[test]
     fn serialize_request() {
-        let req = JsonRpcRequest::new(1, "initialize", Some(serde_json::json!({"key": "value"})));
+        let req = JsonRpcRequest::new(1u64, "initialize", Some(serde_json::json!({"key": "value"})));
         let json = serde_json::to_string(&req).unwrap();
         assert!(json.contains("\"jsonrpc\":\"2.0\""));
         assert!(json.contains("\"id\":1"));
@@ -152,7 +152,7 @@ mod tests {
 
     #[test]
     fn serialize_request_without_params() {
-        let req = JsonRpcRequest::new(2, "tools/list", None);
+        let req = JsonRpcRequest::new(2u64, "tools/list", None);
         let json = serde_json::to_string(&req).unwrap();
         assert!(!json.contains("params"));
     }
@@ -161,7 +161,7 @@ mod tests {
     fn deserialize_success_response() {
         let json = r#"{"jsonrpc":"2.0","id":1,"result":{"tools":[]}}"#;
         let resp: JsonRpcResponse = serde_json::from_str(json).unwrap();
-        assert_eq!(resp.id, Some(1));
+        assert_eq!(resp.id, serde_json::json!(1));
         assert!(!resp.is_error());
     }
 
@@ -179,7 +179,7 @@ mod tests {
     fn parse_incoming_response() {
         let line = r#"{"jsonrpc":"2.0","id":5,"result":{}}"#;
         match parse_incoming(line) {
-            Some(IncomingMessage::Response(r)) => assert_eq!(r.id, Some(5)),
+            Some(IncomingMessage::Response(r)) => assert_eq!(r.id, serde_json::json!(5)),
             _ => panic!("Expected Response"),
         }
     }
@@ -201,7 +201,7 @@ mod tests {
         match parse_incoming(line) {
             Some(IncomingMessage::Request(r)) => {
                 assert_eq!(r.method, "sampling/createMessage");
-                assert_eq!(r.id, 10);
+                assert_eq!(r.id, serde_json::json!(10));
             }
             _ => panic!("Expected Request"),
         }
@@ -216,7 +216,7 @@ mod tests {
 
     #[test]
     fn response_success_helper() {
-        let resp = JsonRpcResponse::success(1, serde_json::json!({"ok": true}));
+        let resp = JsonRpcResponse::success(serde_json::json!(1), serde_json::json!({"ok": true}));
         assert!(!resp.is_error());
         let val = resp.into_result().unwrap();
         assert_eq!(val["ok"], true);
@@ -224,7 +224,14 @@ mod tests {
 
     #[test]
     fn response_error_helper() {
-        let resp = JsonRpcResponse::error(1, -32600, "Invalid request");
+        let resp = JsonRpcResponse::error(serde_json::json!(1), -32600, "Invalid request");
         assert!(resp.is_error());
+    }
+
+    #[test]
+    fn string_id_request() {
+        let req = JsonRpcRequest::new(serde_json::json!("abc-123"), "tools/list", None);
+        let json = serde_json::to_string(&req).unwrap();
+        assert!(json.contains("\"id\":\"abc-123\""));
     }
 }
